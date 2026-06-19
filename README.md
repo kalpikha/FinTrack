@@ -6,15 +6,16 @@ Built with vanilla JavaScript, Vite, and Firebase (Auth + Firestore). No backend
 
 ## Features
 
-- **Transactions** — income, expense, and transfer entries with categories and accounts
+- **Transactions** — income, expense, and savings entries with categories and accounts
 - **Budgets** — monthly category limits with progress bars
 - **Goals** — savings targets with contribution tracking
-- **Recurring entries** — repeating bills/incomes with manual "Add now" posting
+- **Recurring entries** — repeating bills/incomes that **auto-post on their due date** the next time you open the app; "Add now" remains available for off-cycle posts
 - **Charts** — spend-by-category and trend visualisations (Chart.js)
 - **Multi-account support** — cash, bank, wallet, etc. with per-account balances
-- **Import / Export** — JSON and CSV
+- **Import / Export** — JSON and CSV (imports are validated against the canonical schema)
 - **Multi-user** — sign up + login, each user's data fully isolated
-- **Cross-device sync** — Firestore source of truth, instant local cache for first paint
+- **Password reset** — "Forgot password?" link sends a reset email via Firebase
+- **Live cross-device sync** — Firestore `onSnapshot` keeps every open tab/device in sync in real time
 - **Offline support** — Firestore IndexedDB persistent cache; works offline, syncs on reconnect
 - **Light / Dark theme**
 
@@ -161,12 +162,14 @@ Findings from the project review:
 | Severity | Area | Finding | Status |
 |---|---|---|---|
 | Low | Data integrity | `importJson` and `importCsv` did not validate transaction shape; corrupt rows could enter state | **Fixed** — both now run rows through `normalizeTransaction` |
+| Low | Feature gap | Recurring entries did not auto-post on their due date | **Fixed** — `autoPostDueRecurring` runs on boot and on every cloud snapshot |
+| Low | Self-service | No password reset path for users | **Fixed** — "Forgot password?" link sends a Firebase reset email |
+| Low | Sync latency | Cross-device sync only ran at boot; second tab needed reload | **Fixed** — `onSnapshot` subscription keeps state live |
 | Info | XSS surface | All user-content interpolation goes through `escapeHtml`; `toast` uses `textContent`; `openModal` title uses `textContent` | OK |
 | Info | XSS latent | `emptyState(title, body)` interpolates raw — currently only called with hardcoded literals; if you add a dynamic caller, escape both args | Watch |
 | Info | Inline handler | One `onclick="event.stopPropagation()"` in a template; harmless but blocks strict CSP | Acceptable |
 | Info | Secrets | Admin password stored in `.env` (and exposed to the bundle via `VITE_*`). By design, but rotate after first run | Document |
 | Info | Auth | Email-enumeration possible via Firebase error codes | Optional hardening |
-| UX | Recurring | Recurring transactions don't auto-post; user must press "Add now" | Known |
 
 ## License
 

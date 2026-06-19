@@ -208,6 +208,40 @@ function ymKey(d) {
 }
 function todayISO() { return new Date().toISOString().slice(0, 10); }
 
+function advanceDate(iso, freq) {
+  const d = new Date(iso + 'T00:00:00');
+  if (Number.isNaN(d.getTime())) return iso;
+  if (freq === 'weekly') d.setDate(d.getDate() + 7);
+  else if (freq === 'yearly') d.setFullYear(d.getFullYear() + 1);
+  else d.setMonth(d.getMonth() + 1);
+  return d.toISOString().slice(0, 10);
+}
+
+// Posts a transaction for every due date <= today, advances nextDate.
+function autoPostDueRecurring() {
+  const today = todayISO();
+  let posted = 0;
+  state.recurring.forEach(r => {
+    if (!r.nextDate) return;
+    let safety = 0;
+    while (r.nextDate <= today && safety < 200) {
+      state.transactions.push({
+        id: uid(),
+        date: r.nextDate,
+        type: r.type,
+        category: r.category,
+        amount: r.amount,
+        note: r.name ? `${r.name} (auto)` : '(auto)',
+        account: r.account || state.accounts[0]?.id,
+      });
+      r.nextDate = advanceDate(r.nextDate, r.frequency);
+      posted++;
+      safety++;
+    }
+  });
+  return posted;
+}
+
 function fmt(n, opts = {}) {
   const cur = state.currency || 'USD';
   try {
@@ -909,6 +943,9 @@ function bindViewActions() {
         type: r.type, category: r.category, amount: r.amount,
         note: r.name || '', account: r.account || state.accounts[0]?.id,
       });
+      if (r.nextDate && r.nextDate <= todayISO()) {
+        r.nextDate = advanceDate(r.nextDate, r.frequency);
+      }
       save(); toast('Logged from recurring', 'success'); render();
     }));
   root.querySelectorAll('[data-del-recurring]').forEach(el =>
@@ -1198,6 +1235,9 @@ function openRecurringModal() {
           </select>
         </label>
       </div>
+      <label class="field"><span>Next due date</span>
+        <input class="input" type="date" id="r-next" value="${todayISO()}" required/>
+      </label>
       <label class="field"><span>Category</span>
         <input class="input" id="r-cat" required placeholder="Subscriptions"/>
       </label>
@@ -1227,6 +1267,7 @@ function openRecurringModal() {
       frequency: $('#r-freq').value,
       category: $('#r-cat').value.trim(),
       account: $('#r-account').value,
+      nextDate: $('#r-next').value || todayISO(),
     });
     save(); closeModal(); render(); toast('Recurring entry created', 'success');
   });
@@ -1550,6 +1591,7 @@ async function boot() {
     const nameInput = $('#auth-name');
     const passwordInput = $('#auth-password');
     const nameField = nameInput?.closest('label');
+    const forgotWrap = $('#auth-forgot-wrap');
 
     const adminOnly = !!auth.isAdminOnly;
     const effectiveSignup = adminOnly ? false : isSignup;
@@ -1573,6 +1615,7 @@ async function boot() {
     if (passwordInput) {
       passwordInput.autocomplete = effectiveSignup ? 'new-password' : 'current-password';
     }
+    if (forgotWrap) forgotWrap.hidden = effectiveSignup;
   };
 
   const showAuthGate = () => {
@@ -1583,6 +1626,19 @@ async function boot() {
     $('#auth-toggle')?.addEventListener('click', () => {
       const isSignup = $('#auth-toggle').dataset.mode !== 'signup';
       setAuthMode(isSignup);
+    });
+
+    $('#auth-forgot')?.addEventListener('click', async () => {
+      const email = $('#auth-email')?.value?.trim()
+        || prompt('Enter the email address for password reset:')
+        || '';
+      if (!email) { toast('Email is required', 'error'); return; }
+      try {
+        await auth.requestPasswordReset(email);
+        toast('Password reset email sent. Check your inbox.', 'success');
+      } catch (err) {
+        toast(err?.message || 'Could not send reset email', 'error');
+      }
     });
 
     $('#auth-form')?.addEventListener('submit', async e => {
@@ -1618,24 +1674,44 @@ async function boot() {
     location.reload();
   });
 
-  // Hydrate state from Firestore (cross-device sync).
-  // Runs in the background — local cache renders first for instant UX.
-  if (storage?.getCloudState) {
-    storage.getCloudState(currentUser.id).then(cloudState => {
-      if (!cloudState) {
-        // Cloud is empty: push current local state up so other devices can pick it up.
-        if (state.transactions.length || state.goals.length || state.recurring.length) {
-          storage.setCloudState?.(currentUser.id, state);
-        }
-        return;
-      }
+  // Post any locally-known recurring entries that have come due since last open.
+  const localPosted = autoPostDueRecurring();
+  if (localPosted > 0) {
+    save();
+    toast(`Auto-posted ${localPosted} recurring ${localPosted === 1 ? 'entry' : 'entries'}`, 'success');
+  }
+
+  // Subscribe to live cloud updates (other devices / tabs).
+  // First emission is also the initial hydrate.
+  if (storage?.subscribeCloudState) {
+    storage.subscribeCloudState(currentUser.id, cloudState => {
       const next = normalizeState(cloudState);
+      // Preserve UI-only fields so a remote save doesn't yank the view/period.
+      next.view = state.view;
+      next.period = state.period;
+      next.theme = state.theme;
       Object.assign(state, next);
-      document.documentElement.dataset.theme = state.theme;
-      const periodEl = $('#period');
-      if (periodEl) periodEl.value = state.period;
+      const cloudPosted = autoPostDueRecurring();
+      if (cloudPosted > 0) save();
+      render();
+    });
+  } else if (storage?.getCloudState) {
+    storage.getCloudState(currentUser.id).then(cloudState => {
+      if (!cloudState) return;
+      const next = normalizeState(cloudState);
+      next.view = state.view; next.period = state.period; next.theme = state.theme;
+      Object.assign(state, next);
       render();
     }).catch(err => console.warn('Cloud hydrate failed:', err?.message || err));
+  }
+
+  // Push initial state up if cloud is empty (first device).
+  if (storage?.getCloudState && storage?.setCloudState) {
+    storage.getCloudState(currentUser.id).then(cloudState => {
+      if (!cloudState && (state.transactions.length || state.goals.length || state.recurring.length)) {
+        storage.setCloudState(currentUser.id, state);
+      }
+    }).catch(() => {});
   }
 
   document.documentElement.dataset.theme = state.theme;

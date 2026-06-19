@@ -1,7 +1,7 @@
 const STORAGE_KEY_PREFIX = 'fintrack-finance:user:v2:';
 const LEGACY_STORAGE_KEY = 'lumen-finance:v2';
 
-import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
+import { doc, getDoc, setDoc, onSnapshot, serverTimestamp } from 'firebase/firestore';
 import { getFirebaseDb } from './firebase.js';
 
 function userKey(userId) {
@@ -62,5 +62,28 @@ export async function setCloudState(userId, value) {
     });
   } catch (err) {
     console.warn('Cloud write failed:', err?.message || err);
+  }
+}
+
+// Subscribes to live updates from other devices/tabs.
+// Callback receives the remote state; local writes (hasPendingWrites)
+// are skipped so we don't echo our own changes.
+export function subscribeCloudState(userId, callback) {
+  if (!userId || typeof callback !== 'function') return () => {};
+  try {
+    return onSnapshot(
+      userDocRef(userId),
+      { includeMetadataChanges: false },
+      snap => {
+        if (!snap.exists()) return;
+        if (snap.metadata.hasPendingWrites) return;
+        const state = snap.data()?.state;
+        if (state) callback(state);
+      },
+      err => console.warn('Cloud subscribe failed:', err?.message || err)
+    );
+  } catch (err) {
+    console.warn('Cloud subscribe setup failed:', err?.message || err);
+    return () => {};
   }
 }

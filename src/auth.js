@@ -6,6 +6,7 @@ import {
   updateProfile as fbUpdateProfile,
   updatePassword as fbUpdatePassword,
   reauthenticateWithCredential,
+  sendPasswordResetEmail,
   EmailAuthProvider,
 } from 'firebase/auth';
 import { getFirebaseAuth, isFirebaseConfigured, adminConfig } from './firebase.js';
@@ -140,6 +141,13 @@ export async function changePassword({ currentPassword, newPassword }) {
   );
   await reauthenticateWithCredential(authInstance.currentUser, credential);
   await fbUpdatePassword(authInstance.currentUser, cleanNew);
+}
+
+export async function requestPasswordReset(email) {
+  assertReady();
+  const cleanEmail = normalizeEmail(email);
+  if (!cleanEmail) throw new Error('Email is required');
+  await sendPasswordResetEmail(authInstance, cleanEmail);
 }
 
 export function getCurrentUser() {
