@@ -445,8 +445,8 @@ function emptyState(title, body) {
   return `
     <div class="empty">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="9"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><path d="M9 9h.01M15 9h.01"/></svg>
-      <h3>${title}</h3>
-      <p class="muted">${body}</p>
+      <h3>${escapeHtml(title)}</h3>
+      <p class="muted">${escapeHtml(body)}</p>
     </div>`;
 }
 
@@ -464,7 +464,7 @@ function txRow(t) {
         </div>
       </div>
       <div class="tx-amount">${t.type === 'income' ? '+' : '−'}${fmt(t.amount)}</div>
-      <div class="tx-actions" onclick="event.stopPropagation()">
+      <div class="tx-actions stop-propagate">
         <button class="icon-btn" data-edit="${t.id}" aria-label="Edit"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 1 1 3 3L7 19l-4 1 1-4z"/></svg></button>
         <button class="icon-btn" data-del="${t.id}" aria-label="Delete"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg></button>
       </div>
@@ -868,6 +868,9 @@ function computeAccountBalances() {
    ============================================================ */
 function bindViewActions() {
   const root = $('#view-root');
+
+  root.querySelectorAll('.stop-propagate').forEach(el =>
+    el.addEventListener('click', e => e.stopPropagation()));
 
   root.querySelectorAll('[data-go]').forEach(el =>
     el.addEventListener('click', () => setView(el.dataset.go)));

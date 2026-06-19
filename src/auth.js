@@ -24,6 +24,32 @@ function normalizeEmail(email) {
   return String(email || '').trim().toLowerCase();
 }
 
+// Map Firebase auth error codes to user-facing messages.
+// Codes that would reveal whether an email is registered are collapsed
+// to a single generic message to prevent enumeration.
+function authErrorMessage(err) {
+  const code = err?.code || '';
+  switch (code) {
+    case 'auth/invalid-credential':
+    case 'auth/invalid-email':
+    case 'auth/user-not-found':
+    case 'auth/wrong-password':
+      return 'Invalid email or password.';
+    case 'auth/email-already-in-use':
+      return 'That email cannot be used. Try signing in instead.';
+    case 'auth/weak-password':
+      return 'Password is too weak. Use at least 6 characters.';
+    case 'auth/too-many-requests':
+      return 'Too many attempts. Please try again in a few minutes.';
+    case 'auth/network-request-failed':
+      return 'Network error. Check your connection and try again.';
+    case 'auth/missing-password':
+      return 'Password is required.';
+    default:
+      return err?.message || 'Authentication failed.';
+  }
+}
+
 export function getAdminEmail() {
   return normalizeEmail(adminConfig.email || '');
 }
@@ -82,11 +108,15 @@ export async function login({ email, password }) {
   const cleanEmail = normalizeEmail(email);
   if (!cleanEmail) throw new Error('Email is required');
 
-  const cred = await signInWithEmailAndPassword(authInstance, cleanEmail, String(password || ''));
-  currentUser = cred.user;
-  const user = toPublicUser(currentUser);
-  setUserCache(user);
-  return user;
+  try {
+    const cred = await signInWithEmailAndPassword(authInstance, cleanEmail, String(password || ''));
+    currentUser = cred.user;
+    const user = toPublicUser(currentUser);
+    setUserCache(user);
+    return user;
+  } catch (err) {
+    throw new Error(authErrorMessage(err));
+  }
 }
 
 export async function register({ name, email, password }) {
@@ -99,12 +129,16 @@ export async function register({ name, email, password }) {
   if (!cleanEmail) throw new Error('Email is required');
   if (cleanPassword.length < 6) throw new Error('Password must be at least 6 characters');
 
-  const cred = await createUserWithEmailAndPassword(authInstance, cleanEmail, cleanPassword);
-  await fbUpdateProfile(cred.user, { displayName: cleanName });
-  currentUser = cred.user;
-  const user = toPublicUser(currentUser);
-  setUserCache(user);
-  return user;
+  try {
+    const cred = await createUserWithEmailAndPassword(authInstance, cleanEmail, cleanPassword);
+    await fbUpdateProfile(cred.user, { displayName: cleanName });
+    currentUser = cred.user;
+    const user = toPublicUser(currentUser);
+    setUserCache(user);
+    return user;
+  } catch (err) {
+    throw new Error(authErrorMessage(err));
+  }
 }
 
 export function logout() {
@@ -139,15 +173,28 @@ export async function changePassword({ currentPassword, newPassword }) {
     authInstance.currentUser.email,
     String(currentPassword || '')
   );
-  await reauthenticateWithCredential(authInstance.currentUser, credential);
-  await fbUpdatePassword(authInstance.currentUser, cleanNew);
+  try {
+    await reauthenticateWithCredential(authInstance.currentUser, credential);
+    await fbUpdatePassword(authInstance.currentUser, cleanNew);
+  } catch (err) {
+    throw new Error(authErrorMessage(err));
+  }
 }
 
 export async function requestPasswordReset(email) {
   assertReady();
   const cleanEmail = normalizeEmail(email);
   if (!cleanEmail) throw new Error('Email is required');
-  await sendPasswordResetEmail(authInstance, cleanEmail);
+  try {
+    await sendPasswordResetEmail(authInstance, cleanEmail);
+  } catch (err) {
+    // Always succeed-shape to avoid revealing whether the email exists.
+    if (err?.code === 'auth/invalid-email' || err?.code === 'auth/missing-email') {
+      throw new Error('Please enter a valid email address.');
+    }
+    // For user-not-found / other errors, swallow silently to prevent enumeration.
+    console.warn('Password reset suppressed:', err?.code || err?.message);
+  }
 }
 
 export function getCurrentUser() {

@@ -175,10 +175,9 @@ state = {
 
 ## Known limitations
 
-- Recurring entries don't auto-post; you press "Add now".
-- Sync is at-boot, not live. Two open tabs may diverge until reload.
-- No password reset flow in the UI (Firebase supports it; just not wired).
 - The whole `state` object is written on every save. Fine for personal use; would need finer-grained writes for very large datasets.
+- Single 802 KB JS bundle (Firebase + Chart.js dominate). Code-split via `manualChunks` if startup latency becomes a concern.
+- No mobile native app — PWA install only.
 
 ## Common pitfalls
 

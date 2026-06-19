@@ -165,11 +165,11 @@ Findings from the project review:
 | Low | Feature gap | Recurring entries did not auto-post on their due date | **Fixed** — `autoPostDueRecurring` runs on boot and on every cloud snapshot |
 | Low | Self-service | No password reset path for users | **Fixed** — "Forgot password?" link sends a Firebase reset email |
 | Low | Sync latency | Cross-device sync only ran at boot; second tab needed reload | **Fixed** — `onSnapshot` subscription keeps state live |
+| Low | XSS latent | `emptyState(title, body)` interpolated raw input | **Fixed** — title and body now `escapeHtml`'d |
+| Low | Inline handler | `onclick="event.stopPropagation()"` blocked strict CSP | **Fixed** — replaced with `.stop-propagate` class + delegated listener |
+| Low | Email enumeration | Firebase distinguished "user not found" vs "wrong password" | **Fixed** — `authErrorMessage()` collapses to a single generic message; password-reset always responds the same |
 | Info | XSS surface | All user-content interpolation goes through `escapeHtml`; `toast` uses `textContent`; `openModal` title uses `textContent` | OK |
-| Info | XSS latent | `emptyState(title, body)` interpolates raw — currently only called with hardcoded literals; if you add a dynamic caller, escape both args | Watch |
-| Info | Inline handler | One `onclick="event.stopPropagation()"` in a template; harmless but blocks strict CSP | Acceptable |
 | Info | Secrets | Admin password stored in `.env` (and exposed to the bundle via `VITE_*`). By design, but rotate after first run | Document |
-| Info | Auth | Email-enumeration possible via Firebase error codes | Optional hardening |
 
 ## License
 
