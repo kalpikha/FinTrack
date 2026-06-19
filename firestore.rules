@@ -1,0 +1,31 @@
+rules_version = '2';
+
+// Per-user isolation + size cap to prevent bill-DoS from a compromised client.
+// Schema: the app writes a single document at users/{uid}/data/state.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isOwner(userId) {
+      return request.auth != null && request.auth.uid == userId;
+    }
+
+    // Reads are always allowed for the owner.
+    match /users/{userId}/{document=**} {
+      allow read: if isOwner(userId);
+    }
+
+    // Writes restricted to the canonical state document, with a 200 KB cap.
+    // Adjust the cap if your real state grows past that — but a personal
+    // finance state should never approach this size.
+    match /users/{userId}/data/state {
+      allow write: if isOwner(userId)
+                   && request.resource.size() < 200 * 1024;
+    }
+
+    // Anything else under users/{uid} is read-only.
+    // Block all other paths outright.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

@@ -1,7 +1,7 @@
 const STORAGE_KEY_PREFIX = 'fintrack-finance:user:v2:';
 const LEGACY_STORAGE_KEY = 'lumen-finance:v2';
 
-import { doc, getDoc, setDoc, onSnapshot, serverTimestamp } from 'firebase/firestore';
+import { doc, getDoc, setDoc, deleteDoc, onSnapshot, serverTimestamp } from 'firebase/firestore';
 import { getFirebaseDb } from './firebase.js';
 
 function userKey(userId) {
@@ -62,6 +62,15 @@ export async function setCloudState(userId, value) {
     });
   } catch (err) {
     console.warn('Cloud write failed:', err?.message || err);
+  }
+}
+
+export async function clearCloudState(userId) {
+  if (!userId) return;
+  try {
+    await deleteDoc(userDocRef(userId));
+  } catch (err) {
+    console.warn('Cloud delete failed:', err?.message || err);
   }
 }
 

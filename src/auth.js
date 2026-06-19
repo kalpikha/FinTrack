@@ -24,6 +24,20 @@ function normalizeEmail(email) {
   return String(email || '').trim().toLowerCase();
 }
 
+export const PASSWORD_MIN_LENGTH = 8;
+const PASSWORD_POLICY_MESSAGE =
+  'Password must be at least 8 characters and contain at least one letter and one digit.';
+
+// Lightweight policy check applied to signup, password change, and admin
+// bootstrap. Login is intentionally NOT validated here so we don't leak the
+// policy to attackers probing live accounts.
+export function validatePassword(password) {
+  const pw = String(password || '');
+  if (pw.length < PASSWORD_MIN_LENGTH) return PASSWORD_POLICY_MESSAGE;
+  if (!/[A-Za-z]/.test(pw) || !/\d/.test(pw)) return PASSWORD_POLICY_MESSAGE;
+  return null;
+}
+
 // Map Firebase auth error codes to user-facing messages.
 // Codes that would reveal whether an email is registered are collapsed
 // to a single generic message to prevent enumeration.
@@ -38,7 +52,7 @@ function authErrorMessage(err) {
     case 'auth/email-already-in-use':
       return 'That email cannot be used. Try signing in instead.';
     case 'auth/weak-password':
-      return 'Password is too weak. Use at least 6 characters.';
+      return PASSWORD_POLICY_MESSAGE;
     case 'auth/too-many-requests':
       return 'Too many attempts. Please try again in a few minutes.';
     case 'auth/network-request-failed':
@@ -91,7 +105,18 @@ async function ensureAdminAccount() {
   const password = String(adminConfig.password || '');
   const displayName = String(adminConfig.name || 'Admin').trim() || 'Admin';
 
-  if (!email || password.length < 6) return;
+  if (!email) return;
+  // Refuse to bootstrap an admin with a weak or example-default password.
+  // The default ships in .env.example; if anyone forgets to change it we want
+  // a noisy warning, not a globally-known admin account.
+  if (password === 'Admin@123456') {
+    console.warn('Admin bootstrap skipped: default password from .env.example must be changed.');
+    return;
+  }
+  if (validatePassword(password)) {
+    console.warn('Admin bootstrap skipped: VITE_ADMIN_PASSWORD does not meet the password policy.');
+    return;
+  }
   try {
     const cred = await createUserWithEmailAndPassword(authInstance, email, password);
     await fbUpdateProfile(cred.user, { displayName });
@@ -127,7 +152,8 @@ export async function register({ name, email, password }) {
 
   if (!cleanName) throw new Error('Name is required');
   if (!cleanEmail) throw new Error('Email is required');
-  if (cleanPassword.length < 6) throw new Error('Password must be at least 6 characters');
+  const policyError = validatePassword(cleanPassword);
+  if (policyError) throw new Error(policyError);
 
   try {
     const cred = await createUserWithEmailAndPassword(authInstance, cleanEmail, cleanPassword);
@@ -167,7 +193,8 @@ export async function changePassword({ currentPassword, newPassword }) {
   assertReady();
   requireCurrentUser();
   const cleanNew = String(newPassword || '');
-  if (cleanNew.length < 6) throw new Error('New password must be at least 6 characters');
+  const policyError = validatePassword(cleanNew);
+  if (policyError) throw new Error(policyError);
 
   const credential = EmailAuthProvider.credential(
     authInstance.currentUser.email,

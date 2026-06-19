@@ -72,22 +72,31 @@ VITE_ADMIN_PASSWORD=ChangeThisToSomethingStrong!
 
 ### 4. Publish Firestore security rules
 
-In **Firestore → Rules**, paste:
+The repo ships [firestore.rules](firestore.rules) — per-user isolation plus a 200 KB write cap to prevent a compromised client from inflating your Firestore bill. Deploy with:
 
-```
-rules_version = '2';
-service cloud.firestore {
-  match /databases/{database}/documents {
-    match /users/{userId}/{document=**} {
-      allow read, write: if request.auth != null && request.auth.uid == userId;
-    }
-  }
-}
+```bash
+firebase deploy --only firestore:rules
 ```
 
-Click **Publish**. This guarantees every user can only read/write their own document.
+Or paste the file contents into the **Firestore → Rules** tab in the Firebase console.
 
-### 5. Run
+### 5. (Recommended) Enable App Check
+
+App Check blocks abuse of Auth and Firestore from non-browser clients.
+
+1. **Firebase Console → App Check → Apps → Web** → register your app with **reCAPTCHA Enterprise**.
+2. Copy the site key into `.env`:
+
+   ```env
+   VITE_RECAPTCHA_SITE_KEY=6Lc...your-site-key...
+   ```
+
+3. In the console, set Auth and Firestore enforcement to **Enforced** (start in monitor mode for a day if you have existing users).
+4. On localhost, the SDK auto-prints a debug token on first load — copy it into **App Check → Apps → Manage debug tokens** so dev/CI still works.
+
+If `VITE_RECAPTCHA_SITE_KEY` is empty the app boots normally without App Check.
+
+### 6. Run
 
 ```bash
 npm run dev

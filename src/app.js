@@ -821,10 +821,10 @@ function renderSettings() {
         <div class="card-body">
           <form id="password-form" class="form-grid">
             <label class="field"><span>Current password</span>
-              <input class="input" id="pw-current" type="password" required minlength="6" />
+              <input class="input" id="pw-current" type="password" required minlength="8" />
             </label>
             <label class="field"><span>New password</span>
-              <input class="input" id="pw-new" type="password" required minlength="6" />
+              <input class="input" id="pw-new" type="password" required minlength="8" />
             </label>
             <div class="form-actions">
               <button class="btn primary" type="submit">Change password</button>
@@ -970,11 +970,11 @@ function bindViewActions() {
   root.querySelector('#export-csv')?.addEventListener('click', exportCsv);
   root.querySelector('#import-btn')?.addEventListener('click', () => $('#import-file').click());
 
-  root.querySelector('#profile-form')?.addEventListener('submit', e => {
+  root.querySelector('#profile-form')?.addEventListener('submit', async e => {
     e.preventDefault();
     const name = $('#profile-name')?.value?.trim() || '';
     try {
-      const user = auth?.updateProfile?.({ name });
+      const user = await auth?.updateProfile?.({ name });
       if (!user) throw new Error('Unable to update profile');
       $('#active-user').textContent = user.name || user.email;
       toast('Profile updated', 'success');
@@ -989,19 +989,27 @@ function bindViewActions() {
     const newPassword = $('#pw-new')?.value || '';
     try {
       await auth?.changePassword?.({ currentPassword, newPassword });
-      $('#pw-current').value = '';
-      $('#pw-new').value = '';
       toast('Password updated', 'success');
     } catch (err) {
       toast(err?.message || 'Password update failed', 'error');
+    } finally {
+      // Always wipe both fields so cleartext doesn't linger in the DOM
+      // after either a successful update or a typo'd attempt.
+      const cur = $('#pw-current'); if (cur) cur.value = '';
+      const nxt = $('#pw-new');     if (nxt) nxt.value = '';
     }
   });
 
-  root.querySelector('#reset-data')?.addEventListener('click', () => {
-    if (!confirm('This will erase all your local data. Are you sure?')) return;
+  root.querySelector('#reset-data')?.addEventListener('click', async () => {
+    if (!confirm('This will erase all your local AND cloud data. Are you sure?')) return;
     if (!confirm('Really erase everything?')) return;
     const activeUser = auth?.getCurrentUser?.();
     storage?.clearUserState(activeUser?.id);
+    try {
+      await storage?.clearCloudState?.(activeUser?.id);
+    } catch (err) {
+      console.warn('Cloud reset failed:', err?.message || err);
+    }
     location.reload();
   });
 }
@@ -1206,9 +1214,11 @@ function openAccountModal() {
   `);
   $('#acc-form').addEventListener('submit', e => {
     e.preventDefault();
+    const name = $('#a-name').value.trim();
+    if (!name) { toast('Account name is required', 'error'); return; }
     state.accounts.push({
       id: uid(),
-      name: $('#a-name').value.trim(),
+      name,
       type: $('#a-type').value,
       opening: parseFloat($('#a-opening').value) || 0,
     });
@@ -1449,13 +1459,22 @@ function exportJson() {
   download(blob, `fintrack-${todayISO()}.json`);
   toast('Data exported', 'success');
 }
+function csvCell(value) {
+  let s = value == null ? '' : String(value);
+  // CSV-injection guard: a leading =, +, -, @, tab, or CR makes spreadsheets
+  // evaluate the cell as a formula. Prefix with a single quote to defuse.
+  if (/^[=+\-@\t\r]/.test(s)) s = "'" + s;
+  if (/[",\n\r]/.test(s)) s = '"' + s.replace(/"/g, '""') + '"';
+  return s;
+}
+
 function exportCsv() {
   const rows = [['date', 'type', 'category', 'amount', 'account', 'note']];
   state.transactions.forEach(t => {
     const acc = state.accounts.find(a => a.id === t.account)?.name || '';
-    rows.push([t.date, t.type, t.category, t.amount, acc, (t.note || '').replace(/"/g, '""')]);
+    rows.push([t.date, t.type, t.category, t.amount, acc, t.note || '']);
   });
-  const csv = rows.map(r => r.map(c => /[",\n]/.test(String(c)) ? `"${c}"` : c).join(',')).join('\n');
+  const csv = rows.map(r => r.map(csvCell).join(',')).join('\r\n');
   download(new Blob([csv], { type: 'text/csv' }), `fintrack-transactions-${todayISO()}.csv`);
   toast('Transactions exported', 'success');
 }
@@ -1473,9 +1492,10 @@ function handleImport(e) {
   reader.onload = () => {
     try {
       const text = String(reader.result);
-      if (file.name.endsWith('.csv')) importCsv(text);
-      else importJson(text);
-      save(); render(); toast('Import complete', 'success');
+      const applied = file.name.endsWith('.csv') ? importCsv(text) : importJson(text);
+      if (applied) {
+        save(); render(); toast('Import complete', 'success');
+      }
     } catch (err) {
       toast('Import failed: ' + err.message, 'error');
     }
@@ -1487,7 +1507,7 @@ function handleImport(e) {
 function importJson(text) {
   const obj = JSON.parse(text);
   if (!obj || !Array.isArray(obj.transactions)) throw new Error('Invalid file');
-  if (!confirm(`Replace current data with ${obj.transactions.length} transactions?`)) return;
+  if (!confirm(`Replace current data with ${obj.transactions.length} transactions?`)) return false;
   const next = normalizeState({
     ...obj,
     accounts: obj.accounts?.length ? obj.accounts : state.accounts,
@@ -1497,6 +1517,7 @@ function importJson(text) {
     view: state.view,
   });
   Object.assign(state, next);
+  return true;
 }
 
 function importCsv(text) {
@@ -1519,8 +1540,9 @@ function importCsv(text) {
   });
   const rows = rawRows.map(normalizeTransaction).filter(Boolean);
   if (!rows.length) throw new Error('No valid rows found in CSV');
-  if (!confirm(`Append ${rows.length} transactions from CSV?`)) return;
+  if (!confirm(`Append ${rows.length} transactions from CSV?`)) return false;
   state.transactions.push(...rows);
+  return true;
 }
 
 function parseCsvLine(line) {
@@ -1657,6 +1679,9 @@ async function boot() {
         location.reload();
       } catch (err) {
         toast(err?.message || 'Authentication failed', 'error');
+        // Wipe the password field on failure so a shoulder-surfer or autofill
+        // replay can't lift it from the live DOM; on success the page reloads.
+        const pwEl = $('#auth-password'); if (pwEl) pwEl.value = '';
       }
     });
   };
@@ -1671,9 +1696,13 @@ async function boot() {
   appShell.hidden = false;
 
   $('#active-user').textContent = currentUser.name || currentUser.email;
-  $('#logout-btn')?.addEventListener('click', () => {
+  $('#logout-btn')?.addEventListener('click', async () => {
     flushSave();
-    auth.logout();
+    try {
+      await auth.logout();
+    } catch (err) {
+      console.warn('Logout failed:', err?.message || err);
+    }
     location.reload();
   });
 

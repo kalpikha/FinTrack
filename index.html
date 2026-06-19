@@ -3,6 +3,8 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' https://fonts.googleapis.com 'unsafe-inline'; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self' https://*.googleapis.com https://*.firebaseio.com https://*.firebaseapp.com wss://*.firebaseio.com; frame-ancestors 'none'; object-src 'none'; base-uri 'self'; form-action 'self'" />
+<meta name="referrer" content="strict-origin-when-cross-origin" />
 <title>FinTrack — Personal Finance</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -23,7 +25,7 @@
         <input class="input" id="auth-email" type="email" autocomplete="email" required placeholder="name@example.com" />
       </label>
       <label class="field"><span>Password</span>
-        <input class="input" id="auth-password" type="password" autocomplete="current-password" required minlength="6" placeholder="Minimum 6 characters" />
+        <input class="input" id="auth-password" type="password" autocomplete="current-password" required minlength="8" placeholder="Minimum 8 characters" />
       </label>
       <div id="auth-forgot-wrap" style="text-align:right;margin-top:-4px;">
         <button class="btn ghost sm" id="auth-forgot" type="button">Forgot password?</button>
